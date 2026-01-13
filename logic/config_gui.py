@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import configparser
 import os
+import time
 
 from logic.config_watcher import cfg
 from logic.logger import logger
@@ -72,6 +73,15 @@ class ConfigEditor(threading.Thread):
         self.input_cursor_timer = 0
         
         self.tab_elements = []
+        
+        self.last_draw_time = 0
+        self.needs_redraw = True
+        self.mouse_moved = False
+        self.key_pressed = False
+        self.fps_counter = 0
+        self.fps_start_time = time.time()
+        self.current_fps = 0
+        self.mouse_callback_time = 0
         
         self.init_ui_elements()
         self.start()
@@ -234,29 +244,49 @@ class ConfigEditor(threading.Thread):
         cv2.setMouseCallback(self.window_name, self.mouse_callback)
     
     def main_loop(self):
-        last_time = cv2.getTickCount()
+        target_fps = 30
+        frame_time = 1.0 / target_fps
+        last_time = time.time()
+        last_input_time = time.time()
         
         while self.running:
-            current_time = cv2.getTickCount()
-            elapsed = (current_time - last_time) / cv2.getTickFrequency()
-            last_time = current_time
+            current_time = time.time()
+            elapsed = current_time - last_time
             
-            self.input_cursor_timer += elapsed
-            if self.input_cursor_timer >= 0.5:
-                self.input_cursor_visible = not self.input_cursor_visible
-                self.input_cursor_timer = 0
+            if elapsed >= frame_time or self.needs_redraw:
+                if self.visible and not self.minimized:
+                    self.draw()
+                
+                self.fps_counter += 1
+                if current_time - self.fps_start_time >= 1.0:
+                    self.current_fps = self.fps_counter
+                    self.fps_counter = 0
+                    self.fps_start_time = current_time
+                
+                last_time = current_time
             
-            if self.visible and not self.minimized:
-                self.draw()
+            input_elapsed = current_time - last_input_time
+            if input_elapsed >= frame_time:
+                self.input_cursor_timer += input_elapsed
+                if self.input_cursor_timer >= 0.5:
+                    self.input_cursor_visible = not self.input_cursor_visible
+                    self.input_cursor_timer = 0
+                    self.needs_redraw = True
+                
+                key = cv2.waitKey(1) & 0xFF
+                if key == 27:
+                    self.toggle_visibility()
+                elif self.focused_input is not None and key != 255:
+                    self.handle_keyboard(key)
+                    self.needs_redraw = True
+                
+                if self.mouse_moved:
+                    self.needs_redraw = True
+                    self.mouse_moved = False
+                
+                last_input_time = current_time
             
-            key = cv2.waitKey(30) & 0xFF
-            if key == 27:
-                self.toggle_visibility()
-            
-            if self.focused_input is not None:
-                self.handle_keyboard(key)
-        
-        cv2.destroyWindow(self.window_name)
+            time.sleep(0.001)
     
     def draw(self):
         canvas = np.full((self.canvas_height, self.canvas_width, 3), self.colors['bg'], dtype=np.uint8)
@@ -264,8 +294,10 @@ class ConfigEditor(threading.Thread):
         self.draw_tabs(canvas)
         self.draw_ui_elements(canvas)
         self.draw_status_bar(canvas)
+        self.draw_fps(canvas)
         
         cv2.imshow(self.window_name, canvas)
+        self.needs_redraw = False
     
     def draw_tabs(self, canvas):
         tab_width = self.canvas_width // self.num_tabs
@@ -410,16 +442,40 @@ class ConfigEditor(threading.Thread):
         text_y = status_y + 20
         cv2.putText(canvas, status_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
     
+    def draw_fps(self, canvas):
+        fps_text = f'FPS: {self.current_fps}'
+        fps_size = cv2.getTextSize(fps_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+        text_x = self.canvas_width - fps_size[0] - 10
+        text_y = 30
+        
+        if self.current_fps < 25:
+            color = (0, 0, 255)
+        elif self.current_fps < 30:
+            color = (0, 255, 255)
+        else:
+            color = (0, 255, 0)
+        
+        cv2.putText(canvas, fps_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+    
     def mouse_callback(self, event, x, y, flags, param):
+        if not self.running:
+            return
+        
         self.mouse_pos = (x, y)
         
         if event == cv2.EVENT_LBUTTONDOWN:
+            self.mouse_callback_time = time.time()
             self.handle_click(x, y)
+            self.needs_redraw = True
         elif event == cv2.EVENT_MOUSEMOVE:
-            self.handle_mouse_move(x, y)
+            if time.time() - self.mouse_callback_time > 0.01:
+                self.handle_mouse_move(x, y)
+                self.mouse_moved = True
+                self.mouse_callback_time = time.time()
         elif event == cv2.EVENT_LBUTTONUP:
             self.dragging = False
             self.resizing = False
+            self.needs_redraw = True
     
     def handle_click(self, x, y):
         tab_height = 40
@@ -511,6 +567,7 @@ class ConfigEditor(threading.Thread):
         if self.focused_input is None:
             return
         
+        updated = False
         for element in self.ui_elements:
             if element['key'] == self.focused_input:
                 current_value = element['value']
@@ -520,22 +577,30 @@ class ConfigEditor(threading.Thread):
                     if self.input_cursor_pos > 0:
                         current_value = current_value[:self.input_cursor_pos - 1] + current_value[self.input_cursor_pos:]
                         self.input_cursor_pos -= 1
+                        updated = True
                 elif key == 127:
                     if self.input_cursor_pos < len(current_value):
                         current_value = current_value[:self.input_cursor_pos] + current_value[self.input_cursor_pos + 1:]
+                        updated = True
                 elif key == 13:
                     self.save_input_value(element)
                     self.focused_input = None
+                    updated = True
                 elif key == 27:
                     self.focused_input = None
+                    updated = True
                 elif 32 <= key <= 126:
                     if len(current_value) < max_len:
                         char = chr(key)
                         current_value = current_value[:self.input_cursor_pos] + char + current_value[self.input_cursor_pos:]
                         self.input_cursor_pos += 1
+                        updated = True
                 
                 element['value'] = current_value
                 break
+        
+        if updated:
+            self.needs_redraw = True
     
     def save_input_value(self, element):
         try:
