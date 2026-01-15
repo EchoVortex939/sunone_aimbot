@@ -4,8 +4,10 @@ import numpy as np
 import configparser
 import os
 import time
+import win32api
 
 from logic.config_watcher import cfg
+from logic.buttons import Buttons
 from logic.logger import logger
 
 
@@ -267,7 +269,31 @@ class ConfigEditor(threading.Thread):
                     self.input_cursor_timer = 0
                     self.needs_redraw = True
                 
-                key = cv2.waitKey(1) & 0xFF
+                raw_key = cv2.waitKey(1)
+                key = raw_key & 0xFF
+                
+                # Passthrough keys from config
+                exit_key_code = Buttons.KEY_CODES.get(cfg.hotkey_exit, 113)
+                pause_key_code = Buttons.KEY_CODES.get(cfg.hotkey_pause, 114)
+                reload_key_code = Buttons.KEY_CODES.get(cfg.hotkey_reload_config, 115)
+                toggle_key_code = Buttons.KEY_CODES.get(cfg.hotkey_toggle_config_editor, 116)
+                passthrough_keys = [exit_key_code, pause_key_code, reload_key_code, toggle_key_code]
+                
+                # Also check if targeting key is held (e.g. RightMouseButton)
+                is_targeting = False
+                for t_key in cfg.hotkey_targeting_list:
+                    t_key_code = Buttons.KEY_CODES.get(t_key.strip())
+                    if t_key_code and win32api.GetAsyncKeyState(t_key_code) & 0x8000:
+                        is_targeting = True
+                        break
+                
+                if key in passthrough_keys or is_targeting:
+                    if self.mouse_moved:
+                        self.needs_redraw = True
+                        self.mouse_moved = False
+                    last_input_time = current_time
+                    continue
+
                 if key == 27:
                     self.toggle_visibility()
                 elif self.focused_input is not None and key != 255:
@@ -453,6 +479,17 @@ class ConfigEditor(threading.Thread):
     
     def mouse_callback(self, event, x, y, flags, param):
         if not self.running:
+            return
+            
+        # Disable GUI input during targeting
+        is_targeting = False
+        for t_key in cfg.hotkey_targeting_list:
+            t_key_code = Buttons.KEY_CODES.get(t_key.strip())
+            if t_key_code and win32api.GetAsyncKeyState(t_key_code) & 0x8000:
+                is_targeting = True
+                break
+        
+        if is_targeting:
             return
         
         self.mouse_pos = (x, y)
