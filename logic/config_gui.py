@@ -46,34 +46,41 @@ class ConfigEditor(threading.Thread):
         self.resize_corner = None
         
         # Modern canvas size
-        self.canvas_width = 900
+        self.canvas_width = 1000
         self.canvas_height = 700
-        self.min_width = 700
-        self.min_height = 500
+        self.min_width = 900
+        self.min_height = 600
         
         # Modern font settings
         self.font_scale = 0.6
         self.font_thickness = 1
         
-        # Modern color scheme with gradients
+        # Modern dark grey/purple color scheme (OpenCV BGR tuples)
         self.colors = {
-            'bg_start': (26, 26, 46),      # #1a1a2e
-            'bg_end': (22, 33, 62),        # #16213e
-            'text': (224, 224, 224),       # #e0e0e0
-            'text_shadow': (0, 0, 0),      # Shadow for text
-            'button_normal': (102, 153, 255),  # #0066ff
-            'button_hover': (119, 170, 255),  # #0077ff
-            'button_active': (68, 100, 204),  # #004499
+            'bg_start': (26, 26, 26),        # #1a1a1a
+            'bg_end': (26, 26, 26),
+            'text': (224, 224, 224),         # #e0e0e0
+            'text_shadow': (0, 0, 0),
+
+            'button_normal': (74, 74, 74),   # #4a4a4a
+            'button_hover': (90, 90, 90),
+            'button_active': (255, 51, 153), # #9933ff in BGR
             'button_text': (255, 255, 255),
+
             'slider_track': (51, 51, 51),    # #333333
-            'slider_handle': (0, 255, 255),  # #00ffff
-            'tab_active': (119, 170, 255),   # #0077ff
-            'tab_inactive': (68, 68, 68),    # #444444
-            'input_bg': (34, 34, 34),        # #222222
-            'input_border': (102, 102, 102), # #666666
-            'checkbox': (0, 255, 255),      # #00ffff
-            'border': (68, 68, 68),          # #444444
-            'shadow': (0, 0, 0)              # Black shadow
+            'slider_handle': (255, 255, 0),  # #00ffff in BGR
+
+            'tab_active': (255, 51, 153),    # #9933ff in BGR
+            'tab_inactive': (74, 74, 74),
+
+            'input_bg': (42, 42, 42),        # #2a2a2a
+            'input_border': (74, 74, 74),
+
+            'checkbox_active': (255, 51, 153),
+            'checkbox_inactive': (74, 74, 74),
+
+            'border': (68, 68, 68),
+            'shadow': (0, 0, 0)
         }
         
         # Physical buttons data
@@ -85,6 +92,10 @@ class ConfigEditor(threading.Thread):
         self.input_cursor_pos = 0
         self.input_cursor_visible = True
         self.input_cursor_timer = 0
+        
+        # Slider dragging state
+        self.dragging_slider = None
+        self.dragging_slider_element = None
         
         self.tab_elements = []
         self.tab_rects = []
@@ -125,79 +136,76 @@ class ConfigEditor(threading.Thread):
     def init_ui_elements(self):
         self.ui_elements = []
         self.tab_elements = []
-        
-        y_offset = 70  # Increased to account for physical buttons
-        row_height = 45
+
+        # Layout is relative to the content area under the tab bar.
+        y_offset = 0
+        row_height = 50
         label_x = 30
-        slider_x = 200
-        slider_width = 250
-        
+        slider_x = 240
+        slider_width = 280
+        input_width = 180
+
         self.tab_elements = [[] for _ in range(self.num_tabs)]
-        
+
         self.tab_elements[0] = [
-            {'type': 'slider', 'key': 'detection_window_width', 'x': slider_x, 'y': y_offset, 'w': slider_width, 'h': 20,
-             'min': 200, 'max': 640, 'value': cfg.detection_window_width, 'label': 'Window Width:', 'label_x': label_x},
-            {'type': 'slider', 'key': 'detection_window_height', 'x': slider_x, 'y': y_offset + row_height, 'w': slider_width, 'h': 20,
-             'min': 200, 'max': 640, 'value': cfg.detection_window_height, 'label': 'Window Height:', 'label_x': label_x},
+            {'type': 'slider', 'key': 'detection_window_width', 'x': slider_x, 'y': y_offset + row_height * 0, 'w': slider_width, 'h': 20,
+             'min': 200, 'max': 1920, 'value': cfg.detection_window_width, 'label': 'Window Width:', 'label_x': label_x, 'is_int': True, 'increment': 10},
+            {'type': 'slider', 'key': 'detection_window_height', 'x': slider_x, 'y': y_offset + row_height * 1, 'w': slider_width, 'h': 20,
+             'min': 200, 'max': 1080, 'value': cfg.detection_window_height, 'label': 'Window Height:', 'label_x': label_x, 'is_int': True, 'increment': 10},
             {'type': 'checkbox', 'key': 'circle_capture', 'x': label_x, 'y': y_offset + row_height * 2, 'w': 20, 'h': 20,
              'value': cfg.circle_capture, 'label': 'Circle Capture'}
         ]
-        
-        y_offset = 70
+
         self.tab_elements[1] = [
-            {'type': 'checkbox', 'key': 'Bettercam_capture', 'x': label_x, 'y': y_offset, 'w': 20, 'h': 20,
+            {'type': 'checkbox', 'key': 'Bettercam_capture', 'x': label_x, 'y': y_offset + row_height * 0, 'w': 20, 'h': 20,
              'value': cfg.Bettercam_capture, 'label': 'Bettercam Capture'},
-            {'type': 'checkbox', 'key': 'Obs_capture', 'x': label_x, 'y': y_offset + row_height, 'w': 20, 'h': 20,
+            {'type': 'checkbox', 'key': 'Obs_capture', 'x': label_x, 'y': y_offset + row_height * 1, 'w': 20, 'h': 20,
              'value': cfg.Obs_capture, 'label': 'OBS Capture'},
             {'type': 'checkbox', 'key': 'mss_capture', 'x': label_x, 'y': y_offset + row_height * 2, 'w': 20, 'h': 20,
              'value': cfg.mss_capture, 'label': 'MSS Capture'},
             {'type': 'slider', 'key': 'capture_fps', 'x': slider_x, 'y': y_offset + row_height * 3, 'w': slider_width, 'h': 20,
-             'min': 30, 'max': 120, 'value': cfg.capture_fps, 'label': 'Capture FPS:', 'label_x': label_x, 'is_int': True}
+             'min': 30, 'max': 120, 'value': cfg.capture_fps, 'label': 'Capture FPS:', 'label_x': label_x, 'is_int': True, 'increment': 10}
         ]
-        
-        y_offset = 70
+
         self.tab_elements[2] = [
-            {'type': 'slider', 'key': 'body_y_offset', 'x': slider_x, 'y': y_offset, 'w': slider_width, 'h': 20,
-             'min': 0.0, 'max': 0.5, 'value': cfg.body_y_offset, 'label': 'Body Y Offset:', 'label_x': label_x},
-            {'type': 'checkbox', 'key': 'hideout_targets', 'x': label_x, 'y': y_offset + row_height, 'w': 20, 'h': 20,
+            {'type': 'slider', 'key': 'body_y_offset', 'x': slider_x, 'y': y_offset + row_height * 0, 'w': slider_width, 'h': 20,
+             'min': 0.0, 'max': 0.5, 'value': cfg.body_y_offset, 'label': 'Body Y Offset:', 'label_x': label_x, 'increment': 0.01},
+            {'type': 'checkbox', 'key': 'hideout_targets', 'x': label_x, 'y': y_offset + row_height * 1, 'w': 20, 'h': 20,
              'value': cfg.hideout_targets, 'label': 'Hideout Targets'},
             {'type': 'checkbox', 'key': 'disable_headshot', 'x': label_x, 'y': y_offset + row_height * 2, 'w': 20, 'h': 20,
              'value': cfg.disable_headshot, 'label': 'Disable Headshot'},
             {'type': 'checkbox', 'key': 'disable_prediction', 'x': label_x, 'y': y_offset + row_height * 3, 'w': 20, 'h': 20,
              'value': cfg.disable_prediction, 'label': 'Disable Prediction'},
             {'type': 'slider', 'key': 'prediction_interval', 'x': slider_x, 'y': y_offset + row_height * 4, 'w': slider_width, 'h': 20,
-             'min': 0.5, 'max': 5.0, 'value': cfg.prediction_interval, 'label': 'Prediction Interval:', 'label_x': label_x},
+             'min': 0.5, 'max': 5.0, 'value': cfg.prediction_interval, 'label': 'Prediction Interval:', 'label_x': label_x, 'increment': 0.1},
             {'type': 'checkbox', 'key': 'third_person', 'x': label_x, 'y': y_offset + row_height * 5, 'w': 20, 'h': 20,
              'value': cfg.third_person, 'label': 'Third Person'}
         ]
-        
-        y_offset = 70
-        input_width = 180
+
         self.tab_elements[3] = [
-            {'type': 'input', 'key': 'hotkey_targeting', 'x': slider_x, 'y': y_offset, 'w': input_width, 'h': 35,
+            {'type': 'input', 'key': 'hotkey_targeting', 'x': slider_x, 'y': y_offset + row_height * 0, 'w': input_width, 'h': 35,
              'value': str(cfg.hotkey_targeting), 'label': 'Targeting Key:', 'label_x': label_x, 'max_len': 20},
-            {'type': 'input', 'key': 'hotkey_exit', 'x': slider_x, 'y': y_offset + row_height, 'w': input_width, 'h': 35,
+            {'type': 'input', 'key': 'hotkey_exit', 'x': slider_x, 'y': y_offset + row_height * 1, 'w': input_width, 'h': 35,
              'value': str(cfg.hotkey_exit), 'label': 'Exit Key:', 'label_x': label_x, 'max_len': 20},
             {'type': 'input', 'key': 'hotkey_pause', 'x': slider_x, 'y': y_offset + row_height * 2, 'w': input_width, 'h': 35,
              'value': str(cfg.hotkey_pause), 'label': 'Pause Key:', 'label_x': label_x, 'max_len': 20},
             {'type': 'input', 'key': 'hotkey_reload_config', 'x': slider_x, 'y': y_offset + row_height * 3, 'w': input_width, 'h': 35,
              'value': str(cfg.hotkey_reload_config), 'label': 'Reload Config Key:', 'label_x': label_x, 'max_len': 20}
         ]
-        
-        y_offset = 70
+
         self.tab_elements[4] = [
-            {'type': 'input', 'key': 'mouse_dpi', 'x': slider_x, 'y': y_offset, 'w': input_width, 'h': 35,
+            {'type': 'input', 'key': 'mouse_dpi', 'x': slider_x, 'y': y_offset + row_height * 0, 'w': input_width, 'h': 35,
              'value': str(cfg.mouse_dpi), 'label': 'DPI:', 'label_x': label_x, 'max_len': 10, 'is_int': True},
-            {'type': 'slider', 'key': 'mouse_sensitivity', 'x': slider_x, 'y': y_offset + row_height, 'w': slider_width, 'h': 20,
-             'min': 0.5, 'max': 10.0, 'value': cfg.mouse_sensitivity, 'label': 'Sensitivity:', 'label_x': label_x},
+            {'type': 'slider', 'key': 'mouse_sensitivity', 'x': slider_x, 'y': y_offset + row_height * 1, 'w': slider_width, 'h': 20,
+             'min': 0.5, 'max': 10.0, 'value': cfg.mouse_sensitivity, 'label': 'Sensitivity:', 'label_x': label_x, 'increment': 0.1},
             {'type': 'slider', 'key': 'mouse_fov_width', 'x': slider_x, 'y': y_offset + row_height * 2, 'w': slider_width, 'h': 20,
-             'min': 20, 'max': 200, 'value': cfg.mouse_fov_width, 'label': 'FOV Width:', 'label_x': label_x, 'is_int': True},
+             'min': 20, 'max': 200, 'value': cfg.mouse_fov_width, 'label': 'FOV Width:', 'label_x': label_x, 'is_int': True, 'increment': 10},
             {'type': 'slider', 'key': 'mouse_fov_height', 'x': slider_x, 'y': y_offset + row_height * 3, 'w': slider_width, 'h': 20,
-             'min': 20, 'max': 200, 'value': cfg.mouse_fov_height, 'label': 'FOV Height:', 'label_x': label_x, 'is_int': True},
+             'min': 20, 'max': 200, 'value': cfg.mouse_fov_height, 'label': 'FOV Height:', 'label_x': label_x, 'is_int': True, 'increment': 10},
             {'type': 'slider', 'key': 'mouse_min_speed_multiplier', 'x': slider_x, 'y': y_offset + row_height * 4, 'w': slider_width, 'h': 20,
-             'min': 0.5, 'max': 3.0, 'value': cfg.mouse_min_speed_multiplier, 'label': 'Min Speed Multiplier:', 'label_x': label_x},
+             'min': 0.5, 'max': 3.0, 'value': cfg.mouse_min_speed_multiplier, 'label': 'Min Speed Multiplier:', 'label_x': label_x, 'increment': 0.1},
             {'type': 'slider', 'key': 'mouse_max_speed_multiplier', 'x': slider_x, 'y': y_offset + row_height * 5, 'w': slider_width, 'h': 20,
-             'min': 0.5, 'max': 3.0, 'value': cfg.mouse_max_speed_multiplier, 'label': 'Max Speed Multiplier:', 'label_x': label_x},
+             'min': 0.5, 'max': 3.0, 'value': cfg.mouse_max_speed_multiplier, 'label': 'Max Speed Multiplier:', 'label_x': label_x, 'increment': 0.1},
             {'type': 'checkbox', 'key': 'mouse_lock_target', 'x': label_x, 'y': y_offset + row_height * 6, 'w': 20, 'h': 20,
              'value': cfg.mouse_lock_target, 'label': 'Lock Target'},
             {'type': 'checkbox', 'key': 'mouse_auto_aim', 'x': label_x + 180, 'y': y_offset + row_height * 6, 'w': 20, 'h': 20,
@@ -207,36 +215,33 @@ class ConfigEditor(threading.Thread):
             {'type': 'checkbox', 'key': 'mouse_rzr', 'x': label_x + 180, 'y': y_offset + row_height * 7, 'w': 20, 'h': 20,
              'value': cfg.mouse_rzr, 'label': 'Razer Mouse'}
         ]
-        
-        y_offset = 70
+
         self.tab_elements[5] = [
-            {'type': 'checkbox', 'key': 'auto_shoot', 'x': label_x, 'y': y_offset, 'w': 20, 'h': 20,
+            {'type': 'checkbox', 'key': 'auto_shoot', 'x': label_x, 'y': y_offset + row_height * 0, 'w': 20, 'h': 20,
              'value': cfg.auto_shoot, 'label': 'Auto Shoot'},
-            {'type': 'checkbox', 'key': 'triggerbot', 'x': label_x, 'y': y_offset + row_height, 'w': 20, 'h': 20,
+            {'type': 'checkbox', 'key': 'triggerbot', 'x': label_x, 'y': y_offset + row_height * 1, 'w': 20, 'h': 20,
              'value': cfg.triggerbot, 'label': 'Triggerbot'},
             {'type': 'checkbox', 'key': 'force_click', 'x': label_x, 'y': y_offset + row_height * 2, 'w': 20, 'h': 20,
              'value': cfg.force_click, 'label': 'Force Click'},
             {'type': 'slider', 'key': 'bScope_multiplier', 'x': slider_x, 'y': y_offset + row_height * 3, 'w': slider_width, 'h': 20,
-             'min': 0.5, 'max': 3.0, 'value': cfg.bScope_multiplier, 'label': 'Scope Multiplier:', 'label_x': label_x}
+             'min': 0.5, 'max': 3.0, 'value': cfg.bScope_multiplier, 'label': 'Scope Multiplier:', 'label_x': label_x, 'increment': 0.1}
         ]
-        
-        y_offset = 70
+
         self.tab_elements[6] = [
-            {'type': 'slider', 'key': 'AI_conf', 'x': slider_x, 'y': y_offset, 'w': slider_width, 'h': 20,
-             'min': 0.1, 'max': 0.9, 'value': cfg.AI_conf, 'label': 'AI Confidence:', 'label_x': label_x},
-            {'type': 'input', 'key': 'AI_device', 'x': slider_x, 'y': y_offset + row_height, 'w': input_width, 'h': 35,
+            {'type': 'slider', 'key': 'AI_conf', 'x': slider_x, 'y': y_offset + row_height * 0, 'w': slider_width, 'h': 20,
+             'min': 0.1, 'max': 0.9, 'value': cfg.AI_conf, 'label': 'AI Confidence:', 'label_x': label_x, 'increment': 0.01},
+            {'type': 'input', 'key': 'AI_device', 'x': slider_x, 'y': y_offset + row_height * 1, 'w': input_width, 'h': 35,
              'value': str(cfg.AI_device), 'label': 'AI Device:', 'label_x': label_x, 'max_len': 10},
             {'type': 'checkbox', 'key': 'AI_enable_AMD', 'x': label_x, 'y': y_offset + row_height * 2, 'w': 20, 'h': 20,
              'value': cfg.AI_enable_AMD, 'label': 'Enable AMD'},
             {'type': 'checkbox', 'key': 'disable_tracker', 'x': label_x, 'y': y_offset + row_height * 3, 'w': 20, 'h': 20,
              'value': cfg.disable_tracker, 'label': 'Disable Tracker'}
         ]
-        
-        y_offset = 70
+
         self.tab_elements[7] = [
-            {'type': 'checkbox', 'key': 'show_overlay', 'x': label_x, 'y': y_offset, 'w': 20, 'h': 20,
+            {'type': 'checkbox', 'key': 'show_overlay', 'x': label_x, 'y': y_offset + row_height * 0, 'w': 20, 'h': 20,
              'value': cfg.show_overlay, 'label': 'Show Overlay'},
-            {'type': 'checkbox', 'key': 'overlay_show_boxes', 'x': label_x, 'y': y_offset + row_height, 'w': 20, 'h': 20,
+            {'type': 'checkbox', 'key': 'overlay_show_boxes', 'x': label_x, 'y': y_offset + row_height * 1, 'w': 20, 'h': 20,
              'value': cfg.overlay_show_boxes, 'label': 'Overlay Show Boxes'},
             {'type': 'checkbox', 'key': 'overlay_show_borders', 'x': label_x, 'y': y_offset + row_height * 2, 'w': 20, 'h': 20,
              'value': cfg.overlay_show_borders, 'label': 'Overlay Show Borders'},
@@ -249,9 +254,9 @@ class ConfigEditor(threading.Thread):
             {'type': 'checkbox', 'key': 'show_conf', 'x': label_x, 'y': y_offset + row_height * 6, 'w': 20, 'h': 20,
              'value': cfg.show_conf, 'label': 'Show Conf'},
             {'type': 'slider', 'key': 'debug_window_scale_percent', 'x': slider_x, 'y': y_offset + row_height * 7, 'w': slider_width, 'h': 20,
-             'min': 50, 'max': 200, 'value': cfg.debug_window_scale_percent, 'label': 'Debug Window Scale %:', 'label_x': label_x, 'is_int': True}
+             'min': 50, 'max': 200, 'value': cfg.debug_window_scale_percent, 'label': 'Debug Window Scale %:', 'label_x': label_x, 'is_int': True, 'increment': 10}
         ]
-        
+
         self.ui_elements = self.tab_elements[self.current_tab]
     
     def run(self):
@@ -338,17 +343,9 @@ class ConfigEditor(threading.Thread):
         self.needs_redraw = False
     
     def create_gradient_background(self):
-        """Create modern gradient background"""
+        """Create modern background (solid dark theme)."""
         canvas = np.zeros((self.canvas_height, self.canvas_width, 3), dtype=np.uint8)
-        
-        # Create gradient from bg_start to bg_end
-        for y in range(self.canvas_height):
-            ratio = y / self.canvas_height
-            r = int(self.colors['bg_start'][0] * (1 - ratio) + self.colors['bg_end'][0] * ratio)
-            g = int(self.colors['bg_start'][1] * (1 - ratio) + self.colors['bg_end'][1] * ratio)
-            b = int(self.colors['bg_start'][2] * (1 - ratio) + self.colors['bg_end'][2] * ratio)
-            canvas[y, :] = [b, g, r]  # BGR format
-        
+        canvas[:, :] = self.colors['bg_start']
         return canvas
     
     def draw_physical_buttons(self, canvas):
@@ -447,136 +444,186 @@ class ConfigEditor(threading.Thread):
     
     def draw_ui_elements(self, canvas):
         y_start = self.tab_bar_height + 25
-        row_height = 50
         
-        for i, element in enumerate(self.ui_elements):
+        for element in self.ui_elements:
             if element['type'] == 'slider':
-                self.draw_modern_slider(canvas, element, y_start + i * row_height)
+                self.draw_modern_slider(canvas, element, y_start)
             elif element['type'] == 'checkbox':
-                self.draw_modern_checkbox(canvas, element, y_start + i * row_height)
+                self.draw_modern_checkbox(canvas, element, y_start)
             elif element['type'] == 'input':
-                self.draw_modern_input(canvas, element, y_start + i * row_height)
+                self.draw_modern_input(canvas, element, y_start)
     
-    def draw_modern_slider(self, canvas, element, y):
+    def draw_modern_slider(self, canvas, element, y_start):
+        y = y_start + int(element.get('y', 0))
+
         x = element['x']
         w = element['w']
-        h = element['h']
         min_val = element['min']
         max_val = element['max']
         value = element['value']
         label = element['label']
         label_x = element['label_x']
-        
-        # Modern label with shadow
+
+        # Label
         cv2.putText(canvas, label, (label_x + 1, y + 18), cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, self.colors['shadow'], 1)
         cv2.putText(canvas, label, (label_x, y + 17), cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, self.colors['text'], 1)
-        
+
+        # Slider track
         track_y = y + 25
-        
-        # Modern track with gradient effect
-        cv2.rectangle(canvas, (x, track_y), (x + w, track_y + 6), self.colors['slider_track'], -1)
-        cv2.rectangle(canvas, (x, track_y), (x + w, track_y + 6), self.colors['border'], 1)
-        
+        track_rect = (x, track_y, x + w, track_y + 6)
+        element['_track_rect'] = track_rect
+
+        cv2.rectangle(canvas, (track_rect[0], track_rect[1]), (track_rect[2], track_rect[3]), self.colors['slider_track'], -1)
+        cv2.rectangle(canvas, (track_rect[0], track_rect[1]), (track_rect[2], track_rect[3]), self.colors['border'], 1)
+
+        # Handle
         range_val = max_val - min_val
+        handle_x = x
         if range_val > 0:
             ratio = (value - min_val) / range_val
+            ratio = max(0.0, min(1.0, ratio))
             handle_x = int(x + ratio * w)
-            
-            # Modern circular handle with glow effect
-            cv2.circle(canvas, (handle_x, track_y + 3), 10, self.colors['slider_handle'], -1)
-            cv2.circle(canvas, (handle_x, track_y + 3), 10, self.colors['text'], 1)
-        
-        # Modern value display
+
+        handle_center = (handle_x, track_y + 3)
+        element['_handle_center'] = handle_center
+
+        handle_radius = 9
+        cv2.circle(canvas, handle_center, handle_radius, self.colors['slider_handle'], -1)
+        cv2.circle(canvas, handle_center, handle_radius, self.colors['text'], 1)
+
+        # Value display
         if element.get('is_int', False):
-            value_text = f'{int(value)}'
+            value_text = f'{int(round(float(value)))}'
         else:
-            value_text = f'{value:.2f}'
-        
-        value_text = f'{value_text}'
-        text_size = cv2.getTextSize(value_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+            value_text = f'{float(value):.2f}'
+
         value_x = x + w + 10
         value_y = track_y + 5
-        
+
         cv2.putText(canvas, value_text, (value_x + 1, value_y + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.colors['shadow'], 1)
         cv2.putText(canvas, value_text, (value_x, value_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.colors['text'], 1)
+
+        # Manual numeric input box
+        input_w = 70
+        input_h = 25
+        input_x = x + w + 60
+        input_y = y + 10
+        input_rect = (input_x, input_y, input_x + input_w, input_y + input_h)
+        element['_input_rect'] = input_rect
+
+        is_focused = (self.focused_input == element['key'])
+        border_color = self.colors['button_active'] if is_focused else self.colors['input_border']
+
+        # Hover effect
+        if not is_focused and self.is_point_in_rect(self.mouse_pos, input_rect):
+            border_color = tuple(min(255, c + 20) for c in border_color)
+
+        cv2.rectangle(canvas, (input_rect[0] + 2, input_rect[1] + 2), (input_rect[2] + 2, input_rect[3] + 2), self.colors['shadow'], -1)
+        cv2.rectangle(canvas, (input_rect[0], input_rect[1]), (input_rect[2], input_rect[3]), self.colors['input_bg'], -1)
+        cv2.rectangle(canvas, (input_rect[0], input_rect[1]), (input_rect[2], input_rect[3]), border_color, 2)
+
+        display_text = element.get('_input_text') if is_focused else value_text
+        if display_text is None:
+            display_text = value_text
+        display_text = str(display_text)
+        if is_focused and self.input_cursor_visible:
+            display_text += '|'
+
+        max_chars = int((input_w - 10) / 8)
+        if len(display_text) > max_chars:
+            display_text = display_text[-max_chars:]
+
+        text_x = input_x + 6
+        text_y = input_y + input_h - 8
+        cv2.putText(canvas, display_text, (text_x + 1, text_y + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.colors['shadow'], 1)
+        cv2.putText(canvas, display_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.colors['text'], 1)
     
-    def draw_modern_checkbox(self, canvas, element, y):
+    def draw_modern_checkbox(self, canvas, element, y_start):
+        y = y_start + int(element.get('y', 0))
         x = element['x']
-        w = element['w']
-        h = element['h']
         value = element['value']
         label = element['label']
-        
-        # Modern checkbox background
-        box_size = 18
+
+        # Checkbox
+        box_size = 20
         box_x = x
         box_y = y + 5
-        
-        # Checkbox shadow
+        box_rect = (box_x, box_y, box_x + box_size, box_y + box_size)
+        element['_box_rect'] = box_rect
+
+        # Shadow
         cv2.rectangle(canvas, (box_x + 1, box_y + 1), (box_x + box_size + 1, box_y + box_size + 1), self.colors['shadow'], -1)
-        
-        # Checkbox background
+
+        # Background and border
         if value:
-            cv2.rectangle(canvas, (box_x, box_y), (box_x + box_size, box_y + box_size), self.colors['checkbox'], -1)
+            bg_color = self.colors['checkbox_active']
+            border_color = self.colors['checkbox_active']
         else:
-            cv2.rectangle(canvas, (box_x, box_y), (box_x + box_size, box_y + box_size), self.colors['input_bg'], -1)
-        
-        # Checkbox border
-        border_color = self.colors['checkbox'] if value else self.colors['input_border']
+            bg_color = self.colors['checkbox_inactive']
+            border_color = self.colors['checkbox_inactive']
+
+        # Hover effect
+        if self.is_point_in_rect(self.mouse_pos, box_rect):
+            bg_color = tuple(min(255, c + 20) for c in bg_color)
+            border_color = tuple(min(255, c + 20) for c in border_color)
+
+        cv2.rectangle(canvas, (box_x, box_y), (box_x + box_size, box_y + box_size), bg_color, -1)
         cv2.rectangle(canvas, (box_x, box_y), (box_x + box_size, box_y + box_size), border_color, 2)
-        
+
         # Checkmark
         if value:
             check_points = np.array([
-                [box_x + 4, box_y + 9],
-                [box_x + 8, box_y + 13],
-                [box_x + 14, box_y + 5]
+                [box_x + 4, box_y + 10],
+                [box_x + 8, box_y + 14],
+                [box_x + 16, box_y + 5]
             ])
-            cv2.polylines(canvas, [check_points], False, self.colors['text'], 2)
-        
-        # Modern label with shadow
+            cv2.polylines(canvas, [check_points], False, (255, 255, 255), 2)
+
+        # Label
         label_x = x + box_size + 10
-        cv2.putText(canvas, label, (label_x + 1, y + 20), cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, self.colors['shadow'], 1)
-        cv2.putText(canvas, label, (label_x, y + 19), cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, self.colors['text'], 1)
+        cv2.putText(canvas, label, (label_x + 1, y + 21), cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, self.colors['shadow'], 1)
+        cv2.putText(canvas, label, (label_x, y + 20), cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, self.colors['text'], 1)
     
-    def draw_modern_input(self, canvas, element, y):
+    def draw_modern_input(self, canvas, element, y_start):
+        y = y_start + int(element.get('y', 0))
+
         x = element['x']
         w = element['w']
         h = element['h']
         value = str(element['value'])
         label = element['label']
         label_x = element['label_x']
-        
-        # Modern label with shadow
+
         cv2.putText(canvas, label, (label_x + 1, y + 22), cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, self.colors['shadow'], 1)
         cv2.putText(canvas, label, (label_x, y + 21), cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, self.colors['text'], 1)
-        
-        # Modern input background
+
         input_x = x
         input_y = y + 5
-        
-        # Input shadow
+        input_rect = (input_x, input_y, input_x + w, input_y + h)
+        element['_input_rect'] = input_rect
+
         cv2.rectangle(canvas, (input_x + 2, input_y + 2), (input_x + w + 2, input_y + h + 2), self.colors['shadow'], -1)
-        
-        # Input background
+
         is_focused = (self.focused_input == element['key'])
-        bg_color = self.colors['input_border'] if is_focused else self.colors['input_bg']
-        cv2.rectangle(canvas, (input_x, input_y), (input_x + w, input_y + h), bg_color, -1)
-        cv2.rectangle(canvas, (input_x, input_y), (input_x + w, input_y + h), self.colors['input_border'], 2)
-        
-        # Input text
+        border_color = self.colors['button_active'] if is_focused else self.colors['input_border']
+
+        if not is_focused and self.is_point_in_rect(self.mouse_pos, input_rect):
+            border_color = tuple(min(255, c + 20) for c in border_color)
+
+        cv2.rectangle(canvas, (input_x, input_y), (input_x + w, input_y + h), self.colors['input_bg'], -1)
+        cv2.rectangle(canvas, (input_x, input_y), (input_x + w, input_y + h), border_color, 2)
+
         display_value = value
         if is_focused and self.input_cursor_visible:
             display_value += '|'
-        
-        # Limit text display to fit in input
-        max_chars = int((w - 10) / 8)  # Approximate character width
+
+        max_chars = int((w - 10) / 8)
         if len(display_value) > max_chars:
-            display_value = display_value[:max_chars]
-        
+            display_value = display_value[-max_chars:]
+
         text_x = input_x + 8
         text_y = input_y + h - 8
-        
+
         cv2.putText(canvas, display_value, (text_x + 1, text_y + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.colors['shadow'], 1)
         cv2.putText(canvas, display_value, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.colors['text'], 1)
     
@@ -619,45 +666,88 @@ class ConfigEditor(threading.Thread):
                 self.button_states[button['id']]['pressed'] = True
                 self.needs_redraw = True
                 return
-        
+
         # Check tabs
         for i, (tab_id, x1, y1, x2, y2) in enumerate(self.tab_rects):
             if self.is_point_in_rect((x, y), (x1, y1, x2, y2)):
                 self.current_tab = tab_id
                 self.ui_elements = self.tab_elements[tab_id]
+                self.focused_input = None  # Clear focus when switching tabs
                 self.needs_redraw = True
                 return
-        
+
+        # If an input is focused and we click outside it, commit the value
+        if self.focused_input is not None:
+            focused_element = None
+            for el in self.ui_elements:
+                if el['key'] == self.focused_input:
+                    focused_element = el
+                    break
+
+            if focused_element is not None:
+                focused_rect = focused_element.get('_input_rect')
+                if focused_rect and not self.is_point_in_rect((x, y), focused_rect):
+                    self.update_element_from_input(focused_element)
+                    self.focused_input = None
+
         # Check UI elements
         for element in self.ui_elements:
             if element['type'] == 'slider':
-                self.handle_slider_click(element, x, y)
+                if self.handle_slider_mouse_down(element, x, y):
+                    return
             elif element['type'] == 'checkbox':
-                self.handle_checkbox_click(element, x, y)
+                if self.handle_checkbox_click(element, x, y):
+                    return
             elif element['type'] == 'input':
-                self.handle_input_click(element, x, y)
+                if self.handle_input_click(element, x, y):
+                    return
+
+        # Click outside: clear focus
+        if self.focused_input is not None:
+            focused_element = None
+            for el in self.ui_elements:
+                if el['key'] == self.focused_input:
+                    focused_element = el
+                    break
+            if focused_element is not None:
+                self.update_element_from_input(focused_element)
+            self.focused_input = None
+
+        self.needs_redraw = True
     
     def handle_mouse_up(self, x, y):
         # Handle button clicks
         for button in self.buttons:
             button_id = button['id']
             was_pressed = self.button_states[button_id]['pressed']
-            
+
             if self.is_point_in_rect((x, y), (button['x'], button['y'], button['x'] + button['w'], button['y'] + button['h'])):
                 if was_pressed:
                     self.execute_button_action(button_id)
-            
+
             self.button_states[button_id]['pressed'] = False
-        
+
+        # Finish slider drag
+        if self.dragging_slider_element is not None:
+            self.dragging_slider_element = None
+            self.dragging_slider = None
+            self.save_config()
+
         self.needs_redraw = True
     
     def handle_mouse_move(self, x, y):
+        # Drag slider if active
+        if self.dragging_slider_element is not None:
+            self.update_slider_from_drag(self.dragging_slider_element, x)
+            self.needs_redraw = True
+            return
+
         # Update button hover states
         for button in self.buttons:
             button_id = button['id']
             was_hovered = self.button_states[button_id]['hovered']
             is_hovered = self.is_point_in_rect((x, y), (button['x'], button['y'], button['x'] + button['w'], button['y'] + button['h']))
-            
+
             if was_hovered != is_hovered:
                 self.button_states[button_id]['hovered'] = is_hovered
                 self.needs_redraw = True
@@ -713,67 +803,137 @@ class ConfigEditor(threading.Thread):
         
         return clss
     
-    def handle_slider_click(self, element, x, y):
-        # Handle slider interaction
+    def handle_slider_mouse_down(self, element, x, y):
+        """Handle mouse down on slider (handle or input box)."""
+        # Check input box first
+        input_rect = element.get('_input_rect')
+        if not input_rect:
+            y_start = self.tab_bar_height + 25
+            ey = y_start + int(element.get('y', 0))
+            input_w = 70
+            input_h = 25
+            input_x = element['x'] + element['w'] + 60
+            input_y = ey + 10
+            input_rect = (input_x, input_y, input_x + input_w, input_y + input_h)
+
+        if self.is_point_in_rect((x, y), input_rect):
+            self.focused_input = element['key']
+            # Start editing with current value
+            if element.get('is_int', False):
+                element['_input_text'] = str(int(round(float(element.get('value', 0)))))
+            else:
+                element['_input_text'] = f"{float(element.get('value', 0)):.4f}".rstrip('0').rstrip('.')
+            self.needs_redraw = True
+            return True
+
+        # Check track/handle
+        track_rect = element.get('_track_rect')
+        if not track_rect:
+            y_start = self.tab_bar_height + 25
+            ey = y_start + int(element.get('y', 0))
+            track_y = ey + 25
+            track_rect = (element['x'], track_y, element['x'] + element['w'], track_y + 6)
+
+        if self.is_point_in_rect((x, y), (track_rect[0], track_rect[1] - 10, track_rect[2], track_rect[3] + 10)):
+            # Start dragging
+            self.dragging_slider = element['key']
+            self.dragging_slider_element = element
+            self.update_slider_from_drag(element, x)
+            self.needs_redraw = True
+            return True
+
+        return False
+
+    def update_slider_from_drag(self, element, x):
+        """Update slider value from drag position."""
         slider_x = element['x']
         slider_w = element['w']
-        track_y = y - 10  # Approximate track position
-        
-        if slider_x <= x <= slider_x + slider_w:
-            min_val = element['min']
-            max_val = element['max']
-            range_val = max_val - min_val
-            
-            if range_val > 0:
-                ratio = (x - slider_x) / slider_w
-                new_value = min_val + ratio * range_val
-                
-                if element.get('is_int', False):
-                    new_value = int(new_value)
-                
-                element['value'] = new_value
-                self.apply_element_value(element['key'], new_value)
-                self.needs_redraw = True
-    
+        min_val = element['min']
+        max_val = element['max']
+        range_val = max_val - min_val
+
+        if range_val <= 0:
+            return
+
+        # Calculate ratio from mouse position
+        ratio = (x - slider_x) / slider_w
+        ratio = max(0.0, min(1.0, ratio))
+        new_value = min_val + ratio * range_val
+
+        # Apply increment snapping
+        increment = element.get('increment', 1)
+        if increment:
+            # Snap to increment
+            new_value = round(new_value / increment) * increment
+
+        # Clamp to range
+        new_value = max(min_val, min(max_val, new_value))
+
+        if element.get('is_int', False):
+            new_value = int(round(new_value))
+
+        element['value'] = new_value
+        self.apply_element_value(element['key'], new_value)
+
     def handle_checkbox_click(self, element, x, y):
-        checkbox_x = element['x']
-        checkbox_y = element['y'] + 5
-        checkbox_size = 18
-        
-        if checkbox_x <= x <= checkbox_x + checkbox_size and checkbox_y <= y <= checkbox_y + checkbox_size:
+        """Handle checkbox click - toggle value and save immediately."""
+        box_rect = element.get('_box_rect')
+        if not box_rect:
+            # Fallback if no rect stored yet
+            checkbox_x = element['x']
+            checkbox_y = element.get('y', 0) + self.tab_bar_height + 25 + 5
+            checkbox_size = 20
+            box_rect = (checkbox_x, checkbox_y, checkbox_x + checkbox_size, checkbox_y + checkbox_size)
+
+        if self.is_point_in_rect((x, y), box_rect):
+            # Toggle value
             element['value'] = not element['value']
             self.apply_element_value(element['key'], element['value'])
+            # Immediately save to config.ini
+            self.save_config()
             self.needs_redraw = True
-    
+            return True
+
+        return False
+
     def handle_input_click(self, element, x, y):
-        input_x = element['x']
-        input_y = element['y'] + 5
-        input_w = element['w']
-        input_h = element['h']
-        
-        if input_x <= x <= input_x + input_w and input_y <= y <= input_y + input_h:
+        """Handle input box click."""
+        input_rect = element.get('_input_rect')
+        if not input_rect:
+            # Fallback
+            input_x = element['x']
+            input_y = element.get('y', 0) + self.tab_bar_height + 25 + 5
+            input_w = element['w']
+            input_h = element['h']
+            input_rect = (input_x, input_y, input_x + input_w, input_y + input_h)
+
+        if self.is_point_in_rect((x, y), input_rect):
             self.focused_input = element['key']
-        else:
-            if self.focused_input == element['key']:
-                self.focused_input = None
-                self.update_element_from_input(element)
+            self.needs_redraw = True
+            return True
+
+        return False
     
     def handle_keyboard(self, key):
         if self.focused_input is None:
             return
-        
+
         # Find the focused element
         focused_element = None
         for element in self.ui_elements:
             if element['key'] == self.focused_input:
                 focused_element = element
                 break
-        
+
         if focused_element is None:
             return
-        
-        current_value = str(focused_element['value'])
-        
+
+        # For sliders, use _input_text; for regular inputs, use value
+        if focused_element['type'] == 'slider':
+            current_value = str(focused_element.get('_input_text', ''))
+        else:
+            current_value = str(focused_element['value'])
+
         if key == 8:  # Backspace
             if current_value:
                 current_value = current_value[:-1]
@@ -782,31 +942,72 @@ class ConfigEditor(threading.Thread):
             self.update_element_from_input(focused_element)
             return
         elif 32 <= key <= 126:  # Printable ASCII
-            if len(current_value) < focused_element.get('max_len', 20):
-                current_value += chr(key)
+            # For numeric inputs, allow numbers, decimal points, and minus sign
+            char = chr(key)
+            if focused_element['type'] == 'slider' or focused_element.get('is_int', False):
+                if char.isdigit() or char in '.-':
+                    current_value += char
+            else:
+                if len(current_value) < focused_element.get('max_len', 20):
+                    current_value += char
         elif key == 27:  # Escape
             self.focused_input = None
+            if focused_element['type'] == 'slider':
+                focused_element['_input_text'] = ''
             return
-        
-        focused_element['value'] = current_value
+
+        # Update the appropriate field
+        if focused_element['type'] == 'slider':
+            focused_element['_input_text'] = current_value
+        else:
+            focused_element['value'] = current_value
+
         self.needs_redraw = True
     
     def update_element_from_input(self, element):
-        """Update element value from input text"""
+        """Update element value from input text."""
         try:
-            value_str = str(element['value'])
             key = element['key']
-            
-            if element.get('is_int', False):
-                new_value = int(float(value_str))
+
+            # For sliders, use _input_text if available
+            if element['type'] == 'slider':
+                value_str = str(element.get('_input_text', element['value']))
             else:
+                value_str = str(element['value'])
+
+            # Parse the value
+            if element.get('is_int', False) or element['type'] == 'slider':
                 try:
                     new_value = float(value_str)
-                except ValueError:
-                    new_value = value_str
-            
+                    if element.get('is_int', False):
+                        new_value = int(round(new_value))
+                except (ValueError, TypeError):
+                    # Invalid input, keep old value
+                    logger.warning(f'[Config GUI] Invalid numeric input for {key}: {value_str}')
+                    if element['type'] == 'slider':
+                        element['_input_text'] = ''
+                    return
+            else:
+                new_value = value_str
+
+            # For sliders, clamp to range and apply increment
+            if element['type'] == 'slider':
+                min_val = element['min']
+                max_val = element['max']
+                new_value = max(min_val, min(max_val, new_value))
+                
+                increment = element.get('increment', 1)
+                if increment:
+                    new_value = round(new_value / increment) * increment
+
+                if element.get('is_int', False):
+                    new_value = int(round(new_value))
+
+                element['_input_text'] = ''  # Clear input text
+
             element['value'] = new_value
             self.apply_element_value(key, new_value)
+            self.save_config()  # Save after manual input
         except Exception as e:
             logger.error(f'[Config GUI] Error updating element {element["key"]}: {e}')
     
@@ -820,9 +1021,14 @@ class ConfigEditor(threading.Thread):
             logger.error(f'[Config GUI] Error applying value to {key}: {e}')
     
     def sync_elements_from_cfg(self):
-        """Sync UI elements from config"""
+        """Sync UI elements from config."""
         for element in self.ui_elements:
             key = element['key']
+
+            # Don't overwrite text while the user is typing.
+            if self.focused_input == key and element.get('type') == 'input':
+                continue
+
             if hasattr(cfg, key):
                 element['value'] = getattr(cfg, key)
     
